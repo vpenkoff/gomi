@@ -1,0 +1,9 @@
+{
+	"driver": "mysql",
+	"username": "debi",
+	"password": "t00r",
+	"dbname": "test",
+	"host": "localhost",
+	"port": "3306",
+	"protocol": "tcp"
+}
