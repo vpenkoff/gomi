@@ -58,7 +58,7 @@ func readConfig() (*Config, error) {
 type InputFlags struct {
 	InitMigration bool
 	NewMigration  string
-	Action        string
+	Migrate       string
 }
 
 func initFlags() *InputFlags {
@@ -66,7 +66,7 @@ func initFlags() *InputFlags {
 
 	flag.BoolVar(&flags.InitMigration, "init", false, "gomi init")
 	flag.StringVar(&flags.NewMigration, "new", "", "gomi new `migration_name`")
-	flag.StringVar(&flags.Action, "migrate", "", "gomi migrate")
+	flag.StringVar(&flags.Migrate, "migrate", "", "gomi migrate")
 	flag.Parse()
 
 	return &flags
@@ -103,7 +103,7 @@ func initMigrationsSql() string {
 	`
 }
 
-func runSql(sql string, db *sql.DB) {
+func execSql(sql string, db *sql.DB) {
 	tx, err := db.Begin()
 	if err != nil {
 		log.Fatal(err)
@@ -120,6 +120,20 @@ func runSql(sql string, db *sql.DB) {
 	if err := tx.Commit(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func querySingleSql(db *sql.DB, qStr string, args ...interface{}) *sql.Row {
+	return db.QueryRow(qStr, args)
+}
+
+func querySql(db *sql.DB, qStr string, args ...interface{}) (*sql.Rows, error) {
+	rows, err := db.Query(qStr, args)
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+	return rows, nil
 }
 
 func generateMigrationName(name string) string {
@@ -155,6 +169,25 @@ func generateMigration(name string) error {
 	return nil
 }
 
+func checkIfMigrated(migration string, db *sql.DB) (bool, error) {
+	qStr := `
+		SELECT 1
+		FROM migrations
+		WHERE name = $1
+	`
+	var migrated int
+
+	if err := querySingleSql(db, qStr).Scan(&migrated); err != nil {
+		switch {
+		case err == sql.ErrNoRows:
+			return false, nil
+		case err != nil:
+			return false, err
+		}
+	}
+	return true, nil
+}
+
 func main() {
 	config, err := readConfig()
 	if err != nil {
@@ -177,7 +210,7 @@ func main() {
 
 	if flags.InitMigration {
 		qStr := initMigrationsSql()
-		runSql(qStr, db)
+		execSql(qStr, db)
 
 	}
 
@@ -186,6 +219,12 @@ func main() {
 		if err := generateMigration(migration_name); err != nil {
 			log.Fatal(err)
 		}
+	}
+
+	if flags.Migrate != "" {
+		// check if migration exists
+		// check if migration is migrated
+		// execute migration
 	}
 
 	/*
