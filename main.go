@@ -10,7 +10,9 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"io/ioutil"
 	"log"
+	"os"
 	"reflect"
+	"time"
 )
 
 type Config struct {
@@ -120,6 +122,39 @@ func runSql(sql string, db *sql.DB) {
 	}
 }
 
+func generateMigrationName(name string) string {
+	today := time.Now().UTC()
+	return fmt.Sprintf("%d_%s.sql", today.Unix(), name)
+}
+
+func existsMigrationDir() bool {
+	dir_name := "migrations"
+	if _, err := os.Stat(dir_name); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+func generateMigration(name string) error {
+	migration_name := generateMigrationName(name)
+
+	if !existsMigrationDir() {
+		if err := os.Mkdir("migrations", 0755); err != nil {
+			return err
+		}
+	}
+
+	content := fmt.Sprintf("--Migration name: %s", migration_name)
+	byte_content := []byte(content)
+	file_name := fmt.Sprintf("migrations/%s", migration_name)
+	if err := ioutil.WriteFile(file_name, byte_content, 0644); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func main() {
 	config, err := readConfig()
 	if err != nil {
@@ -146,8 +181,14 @@ func main() {
 
 	}
 
-	/*
+	if flags.NewMigration != "" {
+		migration_name := flags.NewMigration
+		if err := generateMigration(migration_name); err != nil {
+			log.Fatal(err)
+		}
+	}
 
+	/*
 
 		sql, err := ioutil.ReadFile("./dump.sql")
 		if err != nil {
