@@ -11,14 +11,18 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"reflect"
+	"strings"
 	"time"
 )
+
+const MIGRATIONS_DIR = "migrations"
 
 type Config struct {
 	Driver string `json:"driver"`
 	DSN    string `json:"dsn"`
 }
+
+var SqlPlaceholder string
 
 func readConfig() (*Config, error) {
 	config, err := ioutil.ReadFile("./config.json")
@@ -41,6 +45,7 @@ func readConfig() (*Config, error) {
 
 	switch driver {
 	case "mysql":
+		SqlPlaceholder = "?"
 		dsn := fmt.Sprintf("%s:%s@%s(%s:%s)/%s",
 			config_map["username"],
 			config_map["password"],
@@ -56,9 +61,11 @@ func readConfig() (*Config, error) {
 }
 
 type InputFlags struct {
-	InitMigration bool
-	NewMigration  string
-	Migrate       string
+	InitMigration	bool
+	NewMigration	string
+	Migrate		*flag.FlagSet
+	MigrateSingle	string
+	MigrateAll	bool
 }
 
 func initFlags() *InputFlags {
@@ -66,27 +73,20 @@ func initFlags() *InputFlags {
 
 	flag.BoolVar(&flags.InitMigration, "init", false, "gomi init")
 	flag.StringVar(&flags.NewMigration, "new", "", "gomi new `migration_name`")
-	flag.StringVar(&flags.Migrate, "migrate", "", "gomi migrate")
 	flag.Parse()
+
+	migrate_fs := flag.NewFlagSet("migrate", flag.ExitOnError)
+	migrate_fs.StringVar(&flags.MigrateSingle, "name", "", "migration name")
+	migrate_fs.BoolVar(&flags.MigrateAll, "all", false, "migrate all")
+	flags.Migrate.Parse()
 
 	return &flags
 }
 
-func (flags *InputFlags) CheckParams() error {
-	opts_count := 0
-
-	fields := reflect.TypeOf(*flags)
-	values := reflect.ValueOf(*flags)
-
-	for i := 0; i < fields.NumField(); i++ {
-		if !values.Field(i).IsZero() {
-			opts_count++
-		}
+func (flags *InputFlags) CheckParams() {
+	if len(os.Args) < 2 {
+		log.Fatal("Invalid command line arguments")
 	}
-	if opts_count != 1 {
-		return errors.New("Invalid command line arguments")
-	}
-	return nil
 }
 
 func getDB(config *Config) (*sql.DB, error) {
@@ -103,31 +103,32 @@ func initMigrationsSql() string {
 	`
 }
 
-func execSql(sql string, db *sql.DB) {
+func execSql(db *sql.DB, sql string, args ...interface{}) error {
 	tx, err := db.Begin()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	_, err = tx.Exec(string(sql))
+	_, err = tx.Exec(sql, args...)
 	if err != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			log.Fatalf("update drivers: unable to rollback: %v", rollbackErr)
+			return err
 		}
-		log.Fatal(err)
+		return err
 	}
 
 	if err := tx.Commit(); err != nil {
-		log.Fatal(err)
+		return err
 	}
+	return nil
 }
 
 func querySingleSql(db *sql.DB, qStr string, args ...interface{}) *sql.Row {
-	return db.QueryRow(qStr, args)
+	return db.QueryRow(qStr, args...)
 }
 
 func querySql(db *sql.DB, qStr string, args ...interface{}) (*sql.Rows, error) {
-	rows, err := db.Query(qStr, args)
+	rows, err := db.Query(qStr, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -142,8 +143,7 @@ func generateMigrationName(name string) string {
 }
 
 func existsMigrationDir() bool {
-	dir_name := "migrations"
-	if _, err := os.Stat(dir_name); os.IsNotExist(err) {
+	if _, err := os.Stat(MIGRATIONS_DIR); os.IsNotExist(err) {
 		return false
 	}
 
@@ -154,14 +154,14 @@ func generateMigration(name string) error {
 	migration_name := generateMigrationName(name)
 
 	if !existsMigrationDir() {
-		if err := os.Mkdir("migrations", 0755); err != nil {
+		if err := os.Mkdir(MIGRATIONS_DIR, 0755); err != nil {
 			return err
 		}
 	}
 
 	content := fmt.Sprintf("--Migration name: %s", migration_name)
 	byte_content := []byte(content)
-	file_name := fmt.Sprintf("migrations/%s", migration_name)
+	file_name := fmt.Sprintf("%s/%s", MIGRATIONS_DIR, migration_name)
 	if err := ioutil.WriteFile(file_name, byte_content, 0644); err != nil {
 		return err
 	}
@@ -169,15 +169,17 @@ func generateMigration(name string) error {
 	return nil
 }
 
-func checkIfMigrated(migration string, db *sql.DB) (bool, error) {
+func checkMigrated(migration string, db *sql.DB) (bool, error) {
 	qStr := `
 		SELECT 1
 		FROM migrations
-		WHERE name = $1
+		WHERE name = %s;
 	`
+
+	query := fmt.Sprintf(qStr, SqlPlaceholder)
 	var migrated int
 
-	if err := querySingleSql(db, qStr).Scan(&migrated); err != nil {
+	if err := querySingleSql(db, query, migration).Scan(&migrated); err != nil {
 		switch {
 		case err == sql.ErrNoRows:
 			return false, nil
@@ -188,6 +190,18 @@ func checkIfMigrated(migration string, db *sql.DB) (bool, error) {
 	return true, nil
 }
 
+func trackMigration(migration string, db *sql.DB) error {
+	qStr := `
+		INSERT INTO migrations(
+			name,
+			created_at
+		)
+		VALUES (%s, now())
+	`
+	query := fmt.Sprintf(qStr, SqlPlaceholder)
+	return execSql(db, query, migration)
+}
+
 func main() {
 	config, err := readConfig()
 	if err != nil {
@@ -195,11 +209,7 @@ func main() {
 	}
 
 	flags := initFlags()
-
-	if err := flags.CheckParams(); err != nil {
-		flag.PrintDefaults()
-		log.Fatal(err)
-	}
+	flags.CheckParams()
 
 	db, err := getDB(config)
 	if err != nil {
@@ -210,7 +220,9 @@ func main() {
 
 	if flags.InitMigration {
 		qStr := initMigrationsSql()
-		execSql(qStr, db)
+		if err := execSql(db, string(qStr)); err != nil {
+			log.Fatal(err)
+		}
 
 	}
 
@@ -221,18 +233,30 @@ func main() {
 		}
 	}
 
-	if flags.Migrate != "" {
-		// check if migration exists
-		// check if migration is migrated
-		// execute migration
-	}
-
-	/*
-
-		sql, err := ioutil.ReadFile("./dump.sql")
+	if flags.MigrateSingle != "" {
+		migration_name := strings.Split(flags.MigrateSingle, "/")[1]
+		migrated, err := checkMigrated(migration_name, db)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-	*/
+		if !migrated {
+
+			sql, err := ioutil.ReadFile(flags.MigrateSingle)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if err := execSql(db, string(sql)); err != nil {
+				log.Fatal(err)
+			}
+
+			if err := trackMigration(migration_name, db); err != nil {
+				log.Fatal(err)
+			}
+			log.Println("Migration completed")
+		} else {
+			log.Println("Migration already done")
+		}
+	}
 }
