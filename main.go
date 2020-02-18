@@ -11,11 +11,12 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
-const MIGRATIONS_DIR = "migrations"
+const MIGRATIONS_DIR = "./migrations"
 
 type Config struct {
 	Driver string `json:"driver"`
@@ -61,31 +62,50 @@ func readConfig() (*Config, error) {
 }
 
 type InputFlags struct {
-	InitMigration	bool
-	NewMigration	string
-	Migrate		*flag.FlagSet
-	MigrateSingle	string
-	MigrateAll	bool
+	InitCmd          *flag.FlagSet
+	MigrationCmd     *flag.FlagSet
+	MigrateCmdNew    *string
+	MigrateCmdAll    *bool
+	MigrateCmdSingle *string
 }
 
 func initFlags() *InputFlags {
-	var flags InputFlags
+	var inputFlags InputFlags
 
-	flag.BoolVar(&flags.InitMigration, "init", false, "gomi init")
-	flag.StringVar(&flags.NewMigration, "new", "", "gomi new `migration_name`")
-	flag.Parse()
+	inputFlags.InitCmd = flag.NewFlagSet("init", flag.ExitOnError)
+	inputFlags.MigrationCmd = flag.NewFlagSet("migrate", flag.ExitOnError)
 
-	migrate_fs := flag.NewFlagSet("migrate", flag.ExitOnError)
-	migrate_fs.StringVar(&flags.MigrateSingle, "name", "", "migration name")
-	migrate_fs.BoolVar(&flags.MigrateAll, "all", false, "migrate all")
-	flags.Migrate.Parse()
+	inputFlags.MigrateCmdNew = inputFlags.MigrationCmd.String("new", "", "migration name")
+	inputFlags.MigrateCmdAll = inputFlags.MigrationCmd.Bool("all", false, "migrate all from migrations")
+	inputFlags.MigrateCmdSingle = inputFlags.MigrationCmd.String("name", "", "migrate migration")
+	return &inputFlags
+}
 
-	return &flags
+func PrintUsage() {
+	fmt.Println(`
+Usage:
+gomi init - init migrations table
+gomi migrate -new [name] - create migration with name
+gomi migrate -all - migrate all migrations
+gomi migrate -name [name] - migrate migration with name
+`)
 }
 
 func (flags *InputFlags) CheckParams() {
 	if len(os.Args) < 2 {
-		log.Fatal("Invalid command line arguments")
+		PrintUsage()
+		fmt.Println("Invalid command line arguments")
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "init":
+		flags.InitCmd.Parse(os.Args[1:])
+	case "migrate":
+		flags.MigrationCmd.Parse(os.Args[2:])
+	default:
+		PrintUsage()
+		os.Exit(1)
 	}
 }
 
@@ -218,7 +238,7 @@ func main() {
 
 	defer db.Close()
 
-	if flags.InitMigration {
+	if flags.InitCmd.Parsed() {
 		qStr := initMigrationsSql()
 		if err := execSql(db, string(qStr)); err != nil {
 			log.Fatal(err)
@@ -226,37 +246,71 @@ func main() {
 
 	}
 
-	if flags.NewMigration != "" {
-		migration_name := flags.NewMigration
-		if err := generateMigration(migration_name); err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	if flags.MigrateSingle != "" {
-		migration_name := strings.Split(flags.MigrateSingle, "/")[1]
-		migrated, err := checkMigrated(migration_name, db)
-		if err != nil {
-			log.Fatal(err)
+	if flags.MigrationCmd.Parsed() {
+		if *flags.MigrateCmdNew != "" {
+			migration_name := *flags.MigrateCmdNew
+			if err := generateMigration(migration_name); err != nil {
+				log.Fatal(err)
+			}
 		}
 
-		if !migrated {
-
-			sql, err := ioutil.ReadFile(flags.MigrateSingle)
+		if *flags.MigrateCmdSingle != "" {
+			migration_name := strings.Split(*flags.MigrateCmdSingle, "/")[1]
+			migrated, err := checkMigrated(migration_name, db)
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			if err := execSql(db, string(sql)); err != nil {
+			if !migrated {
+				sql, err := ioutil.ReadFile(*flags.MigrateCmdSingle)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				if err := execSql(db, string(sql)); err != nil {
+					log.Fatal(err)
+				}
+
+				if err := trackMigration(migration_name, db); err != nil {
+					log.Fatal(err)
+				}
+				log.Println("Migration completed")
+			} else {
+				log.Println("Migration already done")
+			}
+		}
+
+		if *flags.MigrateCmdAll {
+			migrations, err := filepath.Glob(MIGRATIONS_DIR + "/" + "*.sql")
+			if err != nil {
 				log.Fatal(err)
 			}
 
-			if err := trackMigration(migration_name, db); err != nil {
-				log.Fatal(err)
+			for _, migration := range migrations {
+				migration_name := strings.Split(migration, "/")[1]
+				migrated, err := checkMigrated(migration_name, db)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				if !migrated {
+					sql, err := ioutil.ReadFile(migration)
+					if err != nil {
+						log.Fatal(err)
+					}
+
+					if err := execSql(db, string(sql)); err != nil {
+						log.Fatal(err)
+					}
+
+					if err := trackMigration(migration_name, db); err != nil {
+						log.Fatal(err)
+					}
+					log.Printf("Migration %s completed", migration_name)
+				} else {
+					log.Printf("Migration %s already done", migration_name)
+				}
 			}
-			log.Println("Migration completed")
-		} else {
-			log.Println("Migration already done")
 		}
 	}
 }
