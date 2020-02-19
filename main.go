@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/vpenkoff/gomi/drivers"
 	"io/ioutil"
 	"log"
 	"os"
@@ -17,16 +17,10 @@ import (
 )
 
 const MIGRATIONS_DIR = "./migrations"
-const DRIVER_MYSQL = "mysql"
-
-type Config struct {
-	Driver string `json:"driver"`
-	DSN    string `json:"dsn"`
-}
 
 var SqlPlaceholder string
 
-func readConfig() (*Config, error) {
+func readConfig() (interface{}, error) {
 	config, err := ioutil.ReadFile("./config.json")
 	if err != nil {
 		fmt.Println(err)
@@ -42,32 +36,15 @@ func readConfig() (*Config, error) {
 		return nil, err
 	}
 
-	driver := decoded.(map[string]interface{})["driver"].(string)
-	config_map := decoded.(map[string]interface{})
-
-	switch driver {
-	case DRIVER_MYSQL:
-		SqlPlaceholder = "?"
-		dsn := fmt.Sprintf("%s:%s@%s(%s:%s)/%s",
-			config_map["username"],
-			config_map["password"],
-			config_map["protocol"],
-			config_map["host"],
-			config_map["port"],
-			config_map["dbname"],
-		)
-		return &Config{Driver: driver, DSN: dsn}, nil
-	}
-
-	return nil, errors.New("Could not load config")
+	return decoded, nil
 }
 
 type InputFlags struct {
-	InitCmd           *flag.FlagSet
-	MigrationCmd      *flag.FlagSet
-	MigrateCmdNew     *string
-	MigrateCmdAll     *bool
-	MigrateCmdSingle  *string
+	InitCmd          *flag.FlagSet
+	MigrationCmd     *flag.FlagSet
+	MigrateCmdNew    *string
+	MigrateCmdAll    *bool
+	MigrateCmdSingle *string
 }
 
 func initFlags() *InputFlags {
@@ -107,10 +84,6 @@ func (flags *InputFlags) CheckParams() {
 		PrintUsage()
 		os.Exit(1)
 	}
-}
-
-func getDB(config *Config) (*sql.DB, error) {
-	return sql.Open(config.Driver, config.DSN)
 }
 
 func initMigrationsSql() string {
@@ -250,15 +223,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	flags := initFlags()
-	flags.CheckParams()
-
-	db, err := getDB(config)
+	dbDriver, err := drivers.GetDriverFromConfig(config)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	SqlPlaceholder = dbDriver.GetSqlPlaceholder()
+
+	db := dbDriver.GetDB()
 	defer db.Close()
+
+	flags := initFlags()
+	flags.CheckParams()
 
 	if flags.InitCmd.Parsed() {
 		qStr := initMigrationsSql()
