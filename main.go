@@ -17,6 +17,7 @@ import (
 )
 
 const MIGRATIONS_DIR = "./migrations"
+const DRIVER_MYSQL = "mysql"
 
 type Config struct {
 	Driver string `json:"driver"`
@@ -45,7 +46,7 @@ func readConfig() (*Config, error) {
 	config_map := decoded.(map[string]interface{})
 
 	switch driver {
-	case "mysql":
+	case DRIVER_MYSQL:
 		SqlPlaceholder = "?"
 		dsn := fmt.Sprintf("%s:%s@%s(%s:%s)/%s",
 			config_map["username"],
@@ -62,11 +63,11 @@ func readConfig() (*Config, error) {
 }
 
 type InputFlags struct {
-	InitCmd          *flag.FlagSet
-	MigrationCmd     *flag.FlagSet
-	MigrateCmdNew    *string
-	MigrateCmdAll    *bool
-	MigrateCmdSingle *string
+	InitCmd           *flag.FlagSet
+	MigrationCmd      *flag.FlagSet
+	MigrateCmdNew     *string
+	MigrateCmdAll     *bool
+	MigrateCmdSingle  *string
 }
 
 func initFlags() *InputFlags {
@@ -94,7 +95,6 @@ gomi migrate -name [name] - migrate migration with name
 func (flags *InputFlags) CheckParams() {
 	if len(os.Args) < 2 {
 		PrintUsage()
-		fmt.Println("Invalid command line arguments")
 		os.Exit(1)
 	}
 
@@ -179,7 +179,7 @@ func generateMigration(name string) error {
 		}
 	}
 
-	content := fmt.Sprintf("--Migration name: %s", migration_name)
+	content := fmt.Sprintf("-- Migration name: %s", migration_name)
 	byte_content := []byte(content)
 	file_name := fmt.Sprintf("%s/%s", MIGRATIONS_DIR, migration_name)
 	if err := ioutil.WriteFile(file_name, byte_content, 0644); err != nil {
@@ -222,6 +222,28 @@ func trackMigration(migration string, db *sql.DB) error {
 	return execSql(db, query, migration)
 }
 
+func migrate(migration_path string, db *sql.DB) error {
+	migration_name := strings.Split(migration_path, "/")[1]
+	sql, err := ioutil.ReadFile(migration_path)
+	if err != nil {
+		log.Println(err)
+		return err
+	}
+
+	if err := execSql(db, string(sql)); err != nil {
+		log.Println(err)
+		return err
+	}
+
+	if err := trackMigration(migration_name, db); err != nil {
+		log.Println(err)
+		return err
+	}
+
+	log.Printf("Migration %s completed", migration_name)
+	return nil
+}
+
 func main() {
 	config, err := readConfig()
 	if err != nil {
@@ -252,6 +274,7 @@ func main() {
 			if err := generateMigration(migration_name); err != nil {
 				log.Fatal(err)
 			}
+			log.Printf("Migration %s created!\n", migration_name)
 		}
 
 		if *flags.MigrateCmdSingle != "" {
@@ -260,21 +283,8 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-
 			if !migrated {
-				sql, err := ioutil.ReadFile(*flags.MigrateCmdSingle)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				if err := execSql(db, string(sql)); err != nil {
-					log.Fatal(err)
-				}
-
-				if err := trackMigration(migration_name, db); err != nil {
-					log.Fatal(err)
-				}
-				log.Println("Migration completed")
+				migrate(*flags.MigrateCmdSingle, db)
 			} else {
 				log.Println("Migration already done")
 			}
@@ -294,21 +304,9 @@ func main() {
 				}
 
 				if !migrated {
-					sql, err := ioutil.ReadFile(migration)
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					if err := execSql(db, string(sql)); err != nil {
-						log.Fatal(err)
-					}
-
-					if err := trackMigration(migration_name, db); err != nil {
-						log.Fatal(err)
-					}
-					log.Printf("Migration %s completed", migration_name)
+					migrate(migration, db)
 				} else {
-					log.Printf("Migration %s already done", migration_name)
+					log.Printf("Migration %s already done.Skipping...", migration_name)
 				}
 			}
 		}
