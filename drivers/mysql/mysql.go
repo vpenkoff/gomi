@@ -18,7 +18,7 @@ type MysqlDriver struct {
 func parseConfig(config interface{}) string {
 	config_map := config.(map[string]interface{})
 
-	return fmt.Sprintf("%s:%s@%s(%s:%s)/%s",
+	return fmt.Sprintf("%s:%s@%s(%s:%s)/%s?multiStatements=true",
 		config_map["username"],
 		config_map["password"],
 		config_map["protocol"],
