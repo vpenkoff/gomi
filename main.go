@@ -192,7 +192,8 @@ func trackMigration(migration string, db *sql.DB) error {
 }
 
 func migrate(migration_path string, db *sql.DB) error {
-	migration_name := strings.Split(migration_path, "/")[1]
+	tmp := strings.Split(migration_path, "/")
+	migration_name := tmp[len(tmp)-1]
 	sql, err := ioutil.ReadFile(migration_path)
 	if err != nil {
 		log.Println(err)
@@ -300,8 +301,8 @@ func main() {
 
 		if *flags.MigrateCmdAll {
 			dir := *flags.MigrationDir
-			if err := existsDir; err != nil {
-				log.Fatal(err)
+			if !existsDir(dir) {
+				log.Fatalf("Directory %s does not exist!", dir)
 			}
 
 			abs_dir, err := filepath.Abs(dir)
