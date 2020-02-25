@@ -45,6 +45,7 @@ type InputFlags struct {
 	MigrateCmdNew    *string
 	MigrateCmdAll    *bool
 	MigrateCmdSingle *string
+	MigrationDir     *string
 }
 
 func initFlags() *InputFlags {
@@ -56,6 +57,7 @@ func initFlags() *InputFlags {
 	inputFlags.MigrateCmdNew = inputFlags.MigrationCmd.String("new", "", "migration name")
 	inputFlags.MigrateCmdAll = inputFlags.MigrationCmd.Bool("all", false, "migrate all from migrations")
 	inputFlags.MigrateCmdSingle = inputFlags.MigrationCmd.String("name", "", "migrate migration")
+	inputFlags.MigrationDir = inputFlags.MigrationCmd.String("dir", "", "migration directory")
 	return &inputFlags
 }
 
@@ -63,8 +65,8 @@ func PrintUsage() {
 	fmt.Println(`
 Usage:
 gomi init - init migrations table
-gomi migrate -new [name] - create migration with name
-gomi migrate -all - migrate all migrations
+gomi migrate -new [name] -dir [dir] - create migration with name
+gomi migrate -all -dir [dir] - migrate all migrations
 gomi migrate -name [name] - migrate migration with name
 `)
 }
@@ -135,26 +137,20 @@ func generateMigrationName(name string) string {
 	return fmt.Sprintf("%d_%s.sql", today.Unix(), name)
 }
 
-func existsMigrationDir() bool {
-	if _, err := os.Stat(MIGRATIONS_DIR); os.IsNotExist(err) {
+func existsDir(dir string) bool {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return false
 	}
 
 	return true
 }
 
-func generateMigration(name string) error {
+func generateMigration(dir, name string) error {
 	migration_name := generateMigrationName(name)
-
-	if !existsMigrationDir() {
-		if err := os.Mkdir(MIGRATIONS_DIR, 0755); err != nil {
-			return err
-		}
-	}
 
 	content := fmt.Sprintf("-- Migration name: %s", migration_name)
 	byte_content := []byte(content)
-	file_name := fmt.Sprintf("%s/%s", MIGRATIONS_DIR, migration_name)
+	file_name := fmt.Sprintf("%s/%s", dir, migration_name)
 	if err := ioutil.WriteFile(file_name, byte_content, 0644); err != nil {
 		return err
 	}
@@ -217,6 +213,33 @@ func migrate(migration_path string, db *sql.DB) error {
 	return nil
 }
 
+func setup_migrations_dir(dir string) (string, error) {
+	if dir != "" {
+		abs_dir, err := filepath.Abs(dir)
+		if err != nil {
+			return "", err
+		}
+
+		if !existsDir(abs_dir) {
+			return createDir(abs_dir)
+		}
+		return abs_dir, nil
+	} else {
+		if !existsDir(dir) {
+			return createDir(MIGRATIONS_DIR)
+		}
+		return MIGRATIONS_DIR, nil
+	}
+}
+
+func createDir(dir string) (string, error) {
+	if err := os.Mkdir(dir, 0755); err != nil {
+		return "", err
+	}
+
+	return dir, nil
+}
+
 func main() {
 	config, err := readConfig()
 	if err != nil {
@@ -247,14 +270,23 @@ func main() {
 	if flags.MigrationCmd.Parsed() {
 		if *flags.MigrateCmdNew != "" {
 			migration_name := *flags.MigrateCmdNew
-			if err := generateMigration(migration_name); err != nil {
+			dir := *flags.MigrationDir
+
+			migrations_dir, err := setup_migrations_dir(dir)
+			if err != nil {
 				log.Fatal(err)
 			}
+
+			if err := generateMigration(migrations_dir, migration_name); err != nil {
+				log.Fatal(err)
+			}
+
 			log.Printf("Migration %s created!\n", migration_name)
 		}
 
 		if *flags.MigrateCmdSingle != "" {
-			migration_name := strings.Split(*flags.MigrateCmdSingle, "/")[1]
+			tmp := strings.Split(*flags.MigrateCmdSingle, "/")
+			migration_name := tmp[len(tmp)-1]
 			migrated, err := checkMigrated(migration_name, db)
 			if err != nil {
 				log.Fatal(err)
@@ -267,13 +299,24 @@ func main() {
 		}
 
 		if *flags.MigrateCmdAll {
-			migrations, err := filepath.Glob(MIGRATIONS_DIR + "/" + "*.sql")
+			dir := *flags.MigrationDir
+			if err := existsDir; err != nil {
+				log.Fatal(err)
+			}
+
+			abs_dir, err := filepath.Abs(dir)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			migrations, err := filepath.Glob(abs_dir + "/" + "*.sql")
 			if err != nil {
 				log.Fatal(err)
 			}
 
 			for _, migration := range migrations {
-				migration_name := strings.Split(migration, "/")[1]
+				tmp := strings.Split(migration, "/")
+				migration_name := tmp[len(tmp)-1]
 				migrated, err := checkMigrated(migration_name, db)
 				if err != nil {
 					log.Fatal(err)
