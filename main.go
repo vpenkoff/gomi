@@ -16,12 +16,20 @@ import (
 	"time"
 )
 
-const MIGRATIONS_DIR = "./migrations"
+const DEFAULT_MIGRATIONS_DIR = "./migrations"
+const DEFAULT_CFG_PATH = "./config.json"
 
 var SqlPlaceholder string
 
-func readConfig() (interface{}, error) {
-	config, err := ioutil.ReadFile("./config.json")
+func readConfig(cfg_path string) (interface{}, error) {
+	var path string
+	if cfg_path != "" {
+		path = cfg_path
+	} else {
+		path = DEFAULT_CFG_PATH
+	}
+	config, err := ioutil.ReadFile(path)
+
 	if err != nil {
 		fmt.Println(err)
 		return nil, err
@@ -37,55 +45,6 @@ func readConfig() (interface{}, error) {
 	}
 
 	return decoded, nil
-}
-
-type InputFlags struct {
-	InitCmd          *flag.FlagSet
-	MigrationCmd     *flag.FlagSet
-	MigrateCmdNew    *string
-	MigrateCmdAll    *bool
-	MigrateCmdSingle *string
-	MigrationDir     *string
-}
-
-func initFlags() *InputFlags {
-	var inputFlags InputFlags
-
-	inputFlags.InitCmd = flag.NewFlagSet("init", flag.ExitOnError)
-	inputFlags.MigrationCmd = flag.NewFlagSet("migrate", flag.ExitOnError)
-
-	inputFlags.MigrateCmdNew = inputFlags.MigrationCmd.String("new", "", "migration name")
-	inputFlags.MigrateCmdAll = inputFlags.MigrationCmd.Bool("all", false, "migrate all from migrations")
-	inputFlags.MigrateCmdSingle = inputFlags.MigrationCmd.String("name", "", "migrate migration")
-	inputFlags.MigrationDir = inputFlags.MigrationCmd.String("dir", "", "migration directory")
-	return &inputFlags
-}
-
-func PrintUsage() {
-	fmt.Println(`
-Usage:
-gomi init - init migrations table
-gomi migrate -new [name] -dir [dir] - create migration with name
-gomi migrate -all -dir [dir] - migrate all migrations
-gomi migrate -name [name] - migrate migration with name
-`)
-}
-
-func (flags *InputFlags) CheckParams() {
-	if len(os.Args) < 2 {
-		PrintUsage()
-		os.Exit(1)
-	}
-
-	switch os.Args[1] {
-	case "init":
-		flags.InitCmd.Parse(os.Args[1:])
-	case "migrate":
-		flags.MigrationCmd.Parse(os.Args[2:])
-	default:
-		PrintUsage()
-		os.Exit(1)
-	}
 }
 
 func initMigrationsSql() string {
@@ -227,9 +186,9 @@ func setup_migrations_dir(dir string) (string, error) {
 		return abs_dir, nil
 	} else {
 		if !existsDir(dir) {
-			return createDir(MIGRATIONS_DIR)
+			return createDir(DEFAULT_MIGRATIONS_DIR)
 		}
-		return MIGRATIONS_DIR, nil
+		return DEFAULT_MIGRATIONS_DIR, nil
 	}
 }
 
@@ -242,7 +201,17 @@ func createDir(dir string) (string, error) {
 }
 
 func main() {
-	config, err := readConfig()
+
+	var cfg_path_flag = flag.String("cfg", DEFAULT_CFG_PATH, "config file")
+	var init_flag = flag.Bool("init", false, "init migration table")
+	var migrate_flag = flag.Bool("migrate", false, "do migration")
+	var migrate_all_flag = flag.Bool("all", false, "migrate all")
+	var migrate_new_flag = flag.Bool("new", false, "create new migration")
+	var migration_name_flag = flag.String("name", "", "migration name")
+	var migration_dir_flag = flag.String("dir", DEFAULT_MIGRATIONS_DIR, "migration directory")
+	flag.Parse()
+
+	config, err := readConfig(*cfg_path_flag)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -257,78 +226,73 @@ func main() {
 	db := dbDriver.GetDB()
 	defer db.Close()
 
-	flags := initFlags()
-	flags.CheckParams()
-
-	if flags.InitCmd.Parsed() {
+	if *init_flag {
 		qStr := initMigrationsSql()
 		if err := execSql(db, string(qStr)); err != nil {
 			log.Fatal(err)
 		}
-
+		log.Printf("Init migration table completed")
+		return
 	}
 
-	if flags.MigrationCmd.Parsed() {
-		if *flags.MigrateCmdNew != "" {
-			migration_name := *flags.MigrateCmdNew
-			dir := *flags.MigrationDir
-
-			migrations_dir, err := setup_migrations_dir(dir)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			if err := generateMigration(migrations_dir, migration_name); err != nil {
-				log.Fatal(err)
-			}
-
-			log.Printf("Migration %s created!\n", migration_name)
+	if *migrate_new_flag && *migration_name_flag != "" {
+		migrations_dir, err := setup_migrations_dir(*migration_dir_flag)
+		if err != nil {
+			log.Fatal(err)
 		}
 
-		if *flags.MigrateCmdSingle != "" {
-			tmp := strings.Split(*flags.MigrateCmdSingle, "/")
+		if err := generateMigration(migrations_dir, *migration_name_flag); err != nil {
+			log.Fatal(err)
+		}
+
+		log.Printf("Migration %s created!\n", migration_name_flag)
+	}
+
+	if *migrate_flag && *migration_name_flag != "" {
+		tmp := strings.Split(*migration_name_flag, "/")
+		migration_name := tmp[len(tmp)-1]
+		migrated, err := checkMigrated(migration_name, db)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if !migrated {
+			migrate(*migration_name_flag, db)
+		} else {
+			log.Println("Migration already done")
+		}
+	}
+
+	if *migrate_flag && *migrate_all_flag {
+		if !existsDir(*migration_dir_flag) {
+			log.Fatalf("Directory %s does not exist!", *migration_dir_flag)
+		}
+
+		abs_dir, err := filepath.Abs(*migration_dir_flag)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		migrations, err := filepath.Glob(abs_dir + "/" + "*.sql")
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for _, migration := range migrations {
+			tmp := strings.Split(migration, "/")
 			migration_name := tmp[len(tmp)-1]
 			migrated, err := checkMigrated(migration_name, db)
 			if err != nil {
 				log.Fatal(err)
 			}
+
 			if !migrated {
-				migrate(*flags.MigrateCmdSingle, db)
+				migrate(migration, db)
 			} else {
-				log.Println("Migration already done")
+				log.Printf("Migration %s already done.Skipping...", migration_name)
 			}
 		}
-
-		if *flags.MigrateCmdAll {
-			dir := *flags.MigrationDir
-			if !existsDir(dir) {
-				log.Fatalf("Directory %s does not exist!", dir)
-			}
-
-			abs_dir, err := filepath.Abs(dir)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			migrations, err := filepath.Glob(abs_dir + "/" + "*.sql")
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			for _, migration := range migrations {
-				tmp := strings.Split(migration, "/")
-				migration_name := tmp[len(tmp)-1]
-				migrated, err := checkMigrated(migration_name, db)
-				if err != nil {
-					log.Fatal(err)
-				}
-
-				if !migrated {
-					migrate(migration, db)
-				} else {
-					log.Printf("Migration %s already done.Skipping...", migration_name)
-				}
-			}
-		}
+		log.Printf("All migrations done")
 	}
+
+	log.Printf("Bye bye...")
 }
