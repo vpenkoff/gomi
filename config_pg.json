@@ -1,0 +1,9 @@
+{
+	"driver": "postgres",
+	"username": "pguser",
+	"password": "pguser",
+	"dbname": "test",
+	"host": "localhost",
+	"port": "5432",
+	"sslmode": "disable"
+}

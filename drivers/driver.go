@@ -1,17 +1,19 @@
 package drivers
 
 import (
-	"database/sql"
 	"errors"
 	"github.com/vpenkoff/gomi/drivers/mysql"
+	"github.com/vpenkoff/gomi/drivers/postgres"
 )
 
 const DRIVER_MYSQL = "mysql"
+const DRIVER_PGSQL = "postgres"
 
 type Driver interface {
-	InitDriver(interface{}) error
-	GetDB() *sql.DB
-	GetSqlPlaceholder() string
+	InitMigrationTable() error
+	CheckMigrated(string) (bool, error)
+	TrackMigration(string) error
+	Migrate(string) error
 }
 
 func GetDriverFromConfig(config interface{}) (Driver, error) {
@@ -20,6 +22,8 @@ func GetDriverFromConfig(config interface{}) (Driver, error) {
 	switch driver {
 	case DRIVER_MYSQL:
 		return mysql.GetDriver(config)
+	case DRIVER_PGSQL:
+		return postgres.GetDriver(config)
 	}
 	return nil, errors.New("Could not get the driver specified in the config")
 }

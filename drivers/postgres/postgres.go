@@ -1,14 +1,15 @@
-package mysql
+package postgres
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 	"github.com/vpenkoff/gomi/utils"
+	"time"
 )
 
-const DRIVER_MYSQL = "mysql"
+const DRIVER_POSTGRES = "postgres"
 
 type driver struct {
 	DriverName string
@@ -16,46 +17,51 @@ type driver struct {
 	DB         *sql.DB
 }
 
-var MySQLDriver driver
+var PGDriver driver
 
 func parseConfig(config interface{}) string {
 	config_map := config.(map[string]interface{})
 
-	return fmt.Sprintf("%s:%s@%s(%s:%s)/%s?multiStatements=true",
+	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=$s",
 		config_map["username"],
 		config_map["password"],
-		config_map["protocol"],
 		config_map["host"],
 		config_map["port"],
 		config_map["dbname"],
+		config_map["sslmode"],
 	)
 }
 
 func (d *driver) InitDriver(config interface{}) error {
 	d.DSN = parseConfig(config)
-	d.DriverName = DRIVER_MYSQL
+	d.DriverName = DRIVER_POSTGRES
 
 	db, err := sql.Open(d.DriverName, d.DSN)
 	if err != nil {
 		return err
 	}
+
+	db.SetMaxIdleConns(1)
+	db.SetMaxOpenConns(100)
+	db.SetConnMaxLifetime(3600 * time.Second)
+
 	d.DB = db
-	MySQLDriver = *d
+	PGDriver = *d
 	return nil
 }
 
 func GetDriver(config interface{}) (*driver, error) {
-	if err := MySQLDriver.InitDriver(config); err != nil {
+	if err := PGDriver.InitDriver(config); err != nil {
 		return nil, err
 	}
 
-	return &MySQLDriver, nil
+	return &PGDriver, nil
 }
 
 func (d *driver) InitMigrationTable() error {
 	qStr := `
 		CREATE TABLE migrations(
-			id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+			id SERIAL PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
 			created_at TIMESTAMP NOT NULL
 		);`
@@ -66,7 +72,7 @@ func (d *driver) CheckMigrated(migration_name string) (bool, error) {
 	qStr := `
 		SELECT 1
 		FROM migrations
-		WHERE name = ?;
+		WHERE name = $1;
 	`
 
 	var migrated int
@@ -88,7 +94,7 @@ func (d *driver) TrackMigration(migration_name string) error {
 			name,
 			created_at
 		)
-		VALUES (?, now())
+		VALUES ($1, now())
 	`
 	return utils.ExecTx(d.DB, qStr, migration_name)
 }
