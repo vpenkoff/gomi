@@ -8,12 +8,22 @@ contain all needed properties to build valid dsn. Currently only **mysql** is su
 
 ```
 $> ./gomi --help
+Usage of ./gomi:
+-all
+  migrate all
+-cfg string
+  config file (default "./config.json")
+-dir string
+  migration directory (default "./migrations")
+-init
+  init migration table
+-migrate
+  do migration
+-name string
+  migration name
+-new
+  create new migration
 
-Usage:
-gomi init - init migrations table
-gomi migrate -new [name] - create migration with name
-gomi migrate -all - migrate all migrations
-gomi migrate -name [name] - migrate migration with name
 ```
 
 * gomi init - when executed, new db table is created, which tracks run migrations
@@ -23,3 +33,4 @@ gomi migrate -name [name] - migrate migration with name
 
 ## Supported drivers
 	* [mysql](https://github.com/go-sql-driver/mysql)
+	* [postgresql](https://github.com/lib/pg)
