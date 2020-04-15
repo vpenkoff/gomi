@@ -4,10 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/vpenkoff/gomi/utils"
-	"time"
+	"log"
 	"strings"
+	"time"
 )
 
 const DRIVER_POSTGRES = "postgres"
@@ -16,6 +17,15 @@ type driver struct {
 	DriverName string
 	DSN        string
 	DB         *sql.DB
+}
+
+type PGError struct {
+	Msg  string
+	Type string
+}
+
+func (e *PGError) Error() string {
+	return fmt.Sprintf("PG Error: %s", e.Msg)
 }
 
 var PGDriver driver
@@ -65,8 +75,20 @@ func (d *driver) InitMigrationTable() error {
 			id SERIAL PRIMARY KEY,
 			name VARCHAR(255) NOT NULL,
 			created_at TIMESTAMP NOT NULL
-		);`
-	return utils.ExecTx(d.DB, qStr)
+		);
+	`
+
+	if err := utils.ExecTx(d.DB, qStr); err != nil {
+		if err, ok := err.(*pq.Error); ok {
+			switch err.Code {
+			case "42P07": // "duplicate_table"
+				log.Println(&PGError{err.Error(), "custom"})
+				return nil
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 func (d *driver) CheckMigrated(migration_name string) (bool, error) {
