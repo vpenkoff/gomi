@@ -7,6 +7,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/vpenkoff/gomi/utils"
 	"time"
+	"strings"
 )
 
 const DRIVER_POSTGRES = "postgres"
@@ -108,15 +109,20 @@ func (d *driver) Migrate(migration_path string) error {
 
 	migrated, err := d.CheckMigrated(migration_name)
 	if err != nil {
+		fmt.Println(err)
 		return err
 	}
 
 	if migrated {
-		return errors.New("Migration already migrated")
+		return errors.New(fmt.Sprintf("Migration %s already migrated", migration_name))
 	}
 
-	if err := utils.ExecTx(d.DB, string(migration)); err != nil {
-		return err
+	statements := strings.Split(string(migration), ";")
+
+	for _, sql := range statements {
+		if err := utils.ExecTx(d.DB, sql); err != nil {
+			return err
+		}
 	}
 
 	if err := d.TrackMigration(migration_name); err != nil {

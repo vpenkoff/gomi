@@ -66,7 +66,6 @@ func main() {
 
 	if *init_flag {
 		if err := dbDriver.InitMigrationTable(); err != nil {
-			log.Printf("Init migration table failed")
 			log.Fatal(err)
 		}
 		log.Printf("Init migration table completed")
@@ -88,7 +87,6 @@ func main() {
 
 	if *migrate_flag && *migration_name_flag != "" {
 		if err := dbDriver.Migrate(*migration_name_flag); err != nil {
-			log.Printf("Init migration table failed")
 			log.Fatal(err)
 		}
 		log.Printf("Migration %s completed", *migration_name_flag)
@@ -111,10 +109,8 @@ func main() {
 
 		for _, migration := range migrations {
 			if err := dbDriver.Migrate(migration); err != nil {
-				log.Printf("Init migration table failed")
-				log.Fatal(err)
+				log.Println(err)
 			}
-			log.Printf("Migration %s completed", migration)
 		}
 		log.Printf("All migrations done")
 	}
