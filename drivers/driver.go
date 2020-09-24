@@ -2,8 +2,8 @@ package drivers
 
 import (
 	"errors"
-	"github.com/vpenkoff/gomi/drivers/mysql"
-	"github.com/vpenkoff/gomi/drivers/postgres"
+	"gitlab.com/vpenkoff/gomi/drivers/mysql"
+	"gitlab.com/vpenkoff/gomi/drivers/postgres"
 )
 
 const DRIVER_MYSQL = "mysql"

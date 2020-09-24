@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/vpenkoff/gomi/utils"
+	"gitlab.com/vpenkoff/gomi/utils"
 )
 
 const DRIVER_MYSQL = "mysql"

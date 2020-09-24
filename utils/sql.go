@@ -2,6 +2,7 @@ package utils
 
 import (
 	"database/sql"
+	"log"
 )
 
 func ExecTx(db *sql.DB, sql string, args ...interface{}) error {
@@ -13,7 +14,7 @@ func ExecTx(db *sql.DB, sql string, args ...interface{}) error {
 	_, err = tx.Exec(sql, args...)
 	if err != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			return err
+			log.Printf("Unable to rollback: %v", rollbackErr)
 		}
 		return err
 	}

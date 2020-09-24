@@ -4,14 +4,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/lib/pq"
-	"github.com/vpenkoff/gomi/utils"
+	_ "github.com/jackc/pgx/stdlib"
+	"gitlab.com/vpenkoff/gomi/utils"
 	"log"
 	"strings"
 	"time"
 )
 
-const DRIVER_POSTGRES = "postgres"
+const DRIVER_POSTGRES = "pgx"
 
 type driver struct {
 	DriverName string
@@ -33,11 +33,11 @@ var PGDriver driver
 func parseConfig(config interface{}) string {
 	config_map := config.(map[string]interface{})
 
-	return fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=$s",
-		config_map["username"],
-		config_map["password"],
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		config_map["host"],
 		config_map["port"],
+		config_map["username"],
+		config_map["password"],
 		config_map["dbname"],
 		config_map["sslmode"],
 	)
@@ -79,13 +79,7 @@ func (d *driver) InitMigrationTable() error {
 	`
 
 	if err := utils.ExecTx(d.DB, qStr); err != nil {
-		if err, ok := err.(*pq.Error); ok {
-			switch err.Code {
-			case "42P07": // "duplicate_table"
-				log.Println(&PGError{err.Error(), "custom"})
-				return nil
-			}
-		}
+		log.Println(&PGError{err.Error(), "custom"})
 		return err
 	}
 	return nil
