@@ -43,6 +43,10 @@ func parseConfig(config interface{}) string {
 	)
 }
 
+func (d *driver) CloseConn() error {
+	return d.DB.Close()
+}
+
 func (d *driver) InitDriver(config interface{}) error {
 	d.DSN = parseConfig(config)
 	d.DriverName = DRIVER_POSTGRES
@@ -78,8 +82,7 @@ func (d *driver) InitMigrationTable() error {
 		);
 	`
 
-	if err := utils.ExecTx(d.DB, qStr); err != nil {
-		log.Println(&PGError{err.Error(), "custom"})
+	if _, err := utils.Exec(d.DB, qStr); err != nil {
 		return err
 	}
 	return nil
@@ -105,7 +108,7 @@ func (d *driver) CheckMigrated(migration_name string) (bool, error) {
 	return true, nil
 }
 
-func (d *driver) TrackMigration(migration_name string) error {
+func (d *driver) TrackMigration(tx *sql.Tx, migration_name string) error {
 	qStr := `
 		INSERT INTO migrations(
 			name,
@@ -113,7 +116,7 @@ func (d *driver) TrackMigration(migration_name string) error {
 		)
 		VALUES ($1, now())
 	`
-	return utils.ExecTx(d.DB, qStr, migration_name)
+	return utils.ExecTx(tx, qStr, migration_name)
 }
 
 func (d *driver) Migrate(migration_path string) error {
@@ -135,14 +138,38 @@ func (d *driver) Migrate(migration_path string) error {
 
 	statements := strings.Split(string(migration), ";")
 
+	tx, err := utils.BeginTx(d.DB)
+	if err != nil {
+		log.Printf("Unable to start tx: %v\n", err)
+		return err
+	}
+
 	for _, sql := range statements {
-		if err := utils.ExecTx(d.DB, sql); err != nil {
+		if err := utils.ExecTx(tx, sql); err != nil {
+			log.Printf("Error executing tx: %v\n", err)
+			log.Println("Rolling back...")
+
+			if err := utils.RollbackTx(tx); err != nil {
+				log.Printf("Unable to rollback: %v\n", err)
+				return err
+			}
 			return err
+
 		}
 	}
 
-	if err := d.TrackMigration(migration_name); err != nil {
+	if err := d.TrackMigration(tx, migration_name); err != nil {
+		if err := utils.RollbackTx(tx); err != nil {
+			log.Printf("Unable to rollback: %v\n", err)
+			return err
+		}
 		return err
 	}
+
+	if err := utils.CommitTx(tx); err != nil {
+		log.Printf("Unable to commit tx: %v\n", err)
+		return err
+	}
+
 	return nil
 }

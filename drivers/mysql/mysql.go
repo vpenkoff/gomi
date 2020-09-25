@@ -6,6 +6,7 @@ import (
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"gitlab.com/vpenkoff/gomi/utils"
+	"log"
 )
 
 const DRIVER_MYSQL = "mysql"
@@ -29,6 +30,10 @@ func parseConfig(config interface{}) string {
 		config_map["port"],
 		config_map["dbname"],
 	)
+}
+
+func (d *driver) CloseConn() error {
+	return d.DB.Close()
 }
 
 func (d *driver) InitDriver(config interface{}) error {
@@ -59,7 +64,10 @@ func (d *driver) InitMigrationTable() error {
 			name VARCHAR(255) NOT NULL,
 			created_at TIMESTAMP NOT NULL
 		);`
-	return utils.ExecTx(d.DB, qStr)
+	if _, err := utils.Exec(d.DB, qStr); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (d *driver) CheckMigrated(migration_name string) (bool, error) {
@@ -82,7 +90,7 @@ func (d *driver) CheckMigrated(migration_name string) (bool, error) {
 	return true, nil
 }
 
-func (d *driver) TrackMigration(migration_name string) error {
+func (d *driver) TrackMigration(tx *sql.Tx, migration_name string) error {
 	qStr := `
 		INSERT INTO migrations(
 			name,
@@ -90,7 +98,7 @@ func (d *driver) TrackMigration(migration_name string) error {
 		)
 		VALUES (?, now())
 	`
-	return utils.ExecTx(d.DB, qStr, migration_name)
+	return utils.ExecTx(tx, qStr, migration_name)
 }
 
 func (d *driver) Migrate(migration_path string) error {
@@ -109,12 +117,37 @@ func (d *driver) Migrate(migration_path string) error {
 		return errors.New("Migration already migrated")
 	}
 
-	if err := utils.ExecTx(d.DB, string(migration)); err != nil {
+	tx, err := utils.BeginTx(d.DB)
+	if err != nil {
+		log.Printf("Unable to start tx: %v\n", err)
 		return err
 	}
 
-	if err := d.TrackMigration(migration_name); err != nil {
+	if err := utils.ExecTx(tx, string(migration)); err != nil {
+		log.Printf("Error executing tx: %v\n", err)
+		log.Println("Rolling back...")
+
+		if err := utils.RollbackTx(tx); err != nil {
+			log.Printf("Unable to rollback: %v\n", err)
+			return err
+		}
+
+		return err
+
+	}
+
+	if err := d.TrackMigration(tx, migration_name); err != nil {
+		if err := utils.RollbackTx(tx); err != nil {
+			log.Printf("Unable to rollback: %v\n", err)
+			return err
+		}
 		return err
 	}
+
+	if err := utils.CommitTx(tx); err != nil {
+		log.Printf("Unable to commit tx: %v\n", err)
+		return err
+	}
+
 	return nil
 }

@@ -2,26 +2,39 @@ package utils
 
 import (
 	"database/sql"
-	"log"
 )
 
-func ExecTx(db *sql.DB, sql string, args ...interface{}) error {
+func BeginTx(db *sql.DB) (*sql.Tx, error) {
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	_, err = tx.Exec(sql, args...)
+	return tx, nil
+}
+
+func ExecTx(tx *sql.Tx, sql string, args ...interface{}) error {
+	_, err := tx.Exec(sql, args...)
 	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			log.Printf("Unable to rollback: %v", rollbackErr)
-		}
 		return err
 	}
 
+	return nil
+}
+
+func CommitTx(tx *sql.Tx) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+func RollbackTx(tx *sql.Tx) error {
+	if err := tx.Rollback(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -37,4 +50,8 @@ func QueryAll(db *sql.DB, qStr string, args ...interface{}) (*sql.Rows, error) {
 
 	defer rows.Close()
 	return rows, nil
+}
+
+func Exec(db *sql.DB, qStr string, args ...interface{}) (sql.Result, error) {
+	return db.Exec(qStr, args...)
 }

@@ -43,7 +43,6 @@ func readConfig(cfg_path string) (interface{}, error) {
 }
 
 func main() {
-
 	var cfg_path_flag = flag.String("cfg", DEFAULT_CFG_PATH, "config file")
 	var init_flag = flag.Bool("init", false, "init migration table")
 	var migrate_flag = flag.Bool("migrate", false, "do migration")
@@ -62,6 +61,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	defer dbDriver.CloseConn()
 
 	if *init_flag {
 		if err := dbDriver.InitMigrationTable(); err != nil {

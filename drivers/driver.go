@@ -1,6 +1,7 @@
 package drivers
 
 import (
+	"database/sql"
 	"errors"
 	"gitlab.com/vpenkoff/gomi/drivers/mysql"
 	"gitlab.com/vpenkoff/gomi/drivers/postgres"
@@ -12,8 +13,9 @@ const DRIVER_PGSQL = "postgres"
 type Driver interface {
 	InitMigrationTable() error
 	CheckMigrated(string) (bool, error)
-	TrackMigration(string) error
+	TrackMigration(*sql.Tx, string) error
 	Migrate(string) error
+	CloseConn() error
 }
 
 func GetDriverFromConfig(config interface{}) (Driver, error) {
