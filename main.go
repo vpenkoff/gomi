@@ -109,7 +109,7 @@ func main() {
 
 		for _, migration := range migrations {
 			if err := dbDriver.Migrate(migration); err != nil {
-				log.Println(err)
+				log.Printf("Migration: %s || error: %s\n", migration, err)
 			}
 		}
 		log.Printf("All migrations done")

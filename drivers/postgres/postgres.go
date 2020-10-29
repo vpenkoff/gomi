@@ -7,7 +7,6 @@ import (
 	_ "github.com/jackc/pgx/stdlib"
 	"gitlab.com/vpenkoff/gomi/utils"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -136,26 +135,22 @@ func (d *driver) Migrate(migration_path string) error {
 		return errors.New(fmt.Sprintf("Migration %s already migrated", migration_name))
 	}
 
-	statements := strings.Split(string(migration), ";")
-
 	tx, err := utils.BeginTx(d.DB)
 	if err != nil {
 		log.Printf("Unable to start tx: %v\n", err)
 		return err
 	}
 
-	for _, sql := range statements {
-		if err := utils.ExecTx(tx, sql); err != nil {
-			log.Printf("Error executing tx: %v\n", err)
-			log.Println("Rolling back...")
+	if err := utils.ExecTx(tx, string(migration)); err != nil {
+		log.Printf("Error executing tx: %v\n", err)
+		log.Println("Rolling back...")
 
-			if err := utils.RollbackTx(tx); err != nil {
-				log.Printf("Unable to rollback: %v\n", err)
-				return err
-			}
+		if err := utils.RollbackTx(tx); err != nil {
+			log.Printf("Unable to rollback: %v\n", err)
 			return err
-
 		}
+		return err
+
 	}
 
 	if err := d.TrackMigration(tx, migration_name); err != nil {
