@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"bytes"
 	"encoding/json"
 	"flag"
@@ -39,7 +40,44 @@ func readConfig(cfg_path string) (interface{}, error) {
 		return nil, err
 	}
 
+	if valid := validateConfig(decoded); !valid {
+		log.Fatal(errors.New("Config is invalid"))
+	}
+
 	return decoded, nil
+}
+
+func validateConfig(config interface{}) bool {
+	c, ok := config.(map[string]interface{})
+	if !ok {
+		return false
+	}
+
+	if len(c) != len(CONFIG_FILE_FIELDS) {
+		return false
+	}
+
+	valid := false
+
+	for field ,_ := range c {
+		valid = checkConfigFieldValid(field)
+	}
+
+	return valid
+}
+
+var CONFIG_FILE_FIELDS = []string{"host", "port", "protocol", "driver", "username", "password", "dbname"}
+
+func checkConfigFieldValid(field string) bool {
+	valid := false
+
+	for _, f := range CONFIG_FILE_FIELDS {
+		if field == f {
+			valid = true
+		}
+	}
+
+	return valid
 }
 
 func main() {
