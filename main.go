@@ -1,9 +1,9 @@
 package main
 
 import (
-	"errors"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
@@ -11,15 +11,15 @@ import (
 	"gitlab.com/vpenkoff/gomi/utils"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 	"text/tabwriter"
-	"os"
 )
 
 const DEFAULT_MIGRATIONS_DIR = "./migrations"
 const DEFAULT_CFG_PATH = "./config.json"
 
-var CONFIG_FILE_FIELDS = []string{"host", "port", "protocol", "driver", "username", "password", "dbname"}
+var CONFIG_FILE_FIELDS = []string{"sslmode", "host", "port", "protocol", "driver", "username", "password", "dbname"}
 
 // flags
 var f_cfg_path string
@@ -32,6 +32,7 @@ var f_migration_dir string
 var f_help bool
 
 type MigrationAction int
+
 const (
 	MigrationInit MigrationAction = iota
 	MigrationMigrateAll
@@ -39,42 +40,6 @@ const (
 	MigrationNew
 	Help
 )
-
-func init() {
-	flag.StringVar(&f_cfg_path, "config", DEFAULT_CFG_PATH, "config file")
-	flag.BoolVar(&f_init, "init", false, "init migrations table")
-	flag.BoolVar(&f_migrate, "migrate", false, "do migration")
-	flag.BoolVar(&f_migrate_all, "all", false, "migrate all migrations")
-	flag.BoolVar(&f_migrate_new, "new", false, "create new migration")
-	flag.StringVar(&f_migration_name, "name", "", "migration name")
-	flag.StringVar(&f_migration_dir, "dir", DEFAULT_MIGRATIONS_DIR, "migration directory")
-	flag.BoolVar(&f_help, "help", false, "help message")
-}
-
-func main() {
-	flag.Parse()
-
-	config, err := readConfig(f_cfg_path)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	dbDriver, err := drivers.GetDriverFromConfig(config)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	defer dbDriver.CloseConn()
-
-	action, err := getMigrationAction()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := executeMigrationAction(action, dbDriver); err != nil {
-		log.Fatal(err)
-	}
-}
 
 func readConfig(cfg_path string) (interface{}, error) {
 	var path string
@@ -116,7 +81,7 @@ func validateConfig(config interface{}) bool {
 
 	valid := false
 
-	for field ,_ := range c {
+	for field, _ := range c {
 		valid = checkConfigFieldValid(field)
 	}
 
@@ -236,13 +201,54 @@ func printDefaults() error {
 	fmt.Fprintln(w, "-config\t\t\tconfiguration file for connecting to database")
 	fmt.Fprintln(w, "ACTIONS:")
 	fmt.Fprintln(w, "-init\tcreate migrations table into the specified database to track migrations")
-	fmt.Fprintln(w, "-migrate -all [-dir]\tmigrate all migrations from the specified directory [-dir]." +
-					"\n\tBy default the directory is 'migrations' in the current working directory.")
-	fmt.Fprintln(w, "-migrate -name [-dir]\tmigrate migration with name [-name] from directory [-dir]." +
-					"\n\tBy default the directory is 'migrations' in the current working directory.")
-	fmt.Fprintln(w, "-new -name [-dir]\tcreate new migration [-name] in the specified directory [-dir]." +
-					"\n\tBy default the directory is 'migrations' in the current working directory.")
+	fmt.Fprintln(w, "-migrate -all [-dir]\tmigrate all migrations from the specified directory [-dir]."+
+		"\n\tBy default the directory is 'migrations' in the current working directory.")
+	fmt.Fprintln(w, "-migrate -name [-dir]\tmigrate migration with name [-name] from directory [-dir]."+
+		"\n\tBy default the directory is 'migrations' in the current working directory.")
+	fmt.Fprintln(w, "-new -name [-dir]\tcreate new migration [-name] in the specified directory [-dir]."+
+		"\n\tBy default the directory is 'migrations' in the current working directory.")
 	fmt.Fprintln(w, "-help\tprint this message")
 	w.Flush()
 	return nil
+}
+
+func init() {
+	flag.StringVar(&f_cfg_path, "config", DEFAULT_CFG_PATH, "config file")
+	flag.BoolVar(&f_init, "init", false, "init migrations table")
+	flag.BoolVar(&f_migrate, "migrate", false, "do migration")
+	flag.BoolVar(&f_migrate_all, "all", false, "migrate all migrations")
+	flag.BoolVar(&f_migrate_new, "new", false, "create new migration")
+	flag.StringVar(&f_migration_name, "name", "", "migration name")
+	flag.StringVar(&f_migration_dir, "dir", DEFAULT_MIGRATIONS_DIR, "migration directory")
+	flag.BoolVar(&f_help, "help", false, "help message")
+}
+
+func main() {
+	flag.Parse()
+
+	action, err := getMigrationAction()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if action == Help {
+		executeMigrationAction(action, nil)
+		return
+	}
+
+	config, err := readConfig(f_cfg_path)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dbDriver, err := drivers.GetDriverFromConfig(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer dbDriver.CloseConn()
+
+	if err := executeMigrationAction(action, dbDriver); err != nil {
+		log.Fatal(err)
+	}
 }
