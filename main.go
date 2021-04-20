@@ -166,7 +166,7 @@ func exec_migration_migrate_all(db drivers.Driver) error {
 
 	for _, migration := range migrations {
 		if err := db.Migrate(migration); err != nil {
-			return fmt.Errorf("Migration: %s || error: %s\n", migration, err)
+			fmt.Printf("Migration: %s || error: %s\n", migration, err)
 		}
 	}
 	log.Printf("All migrations done")
