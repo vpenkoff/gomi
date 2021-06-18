@@ -4,7 +4,7 @@ gomi, short from(go migrate) is a very minimalistic tool, which aims to do one t
 **plain SQL**. gomi executes the plain sql using the specified driver in the config file. The config file is in json format and it should
 contain all needed properties to build valid DSN.
 
-````
+```
 $> gomi
 Usage: gomi -config=CONFIG_FILE [ACTION...]
 -config                 configuration file for connecting to database
@@ -21,4 +21,4 @@ ACTIONS:
 
 ## Supported drivers
 	* [mysql](https://github.com/go-sql-driver/mysql)
-	* [postgresql](https://github.com/lib/pg)
+	* [postgresql](https://github.com/jackc/pgx)
