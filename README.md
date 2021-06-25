@@ -20,5 +20,5 @@ ACTIONS:
 ```
 
 ## Supported drivers
-* (mysql)[https://github.com/go-sql-driver/mysql]
-* (postgresql)[https://github.com/jackc/pgx]
+* [mysql](https://github.com/go-sql-driver/mysql)
+* [postgresql](https://github.com/jackc/pgx)
